@@ -1,0 +1,7 @@
+compilador: 13.3.0
+optimizacion: -O2 -DNDEBUG
+escenarios_por_caso: 20000
+repeticiones: 5
+consultas_aleatorias_por_escenario: 8 (+2 de los extremos de las lineas caidas)
+semilla: 2026
+costo_del_cronometro_us: 0.026

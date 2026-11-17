@@ -1,0 +1,739 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Islanding en la red ACTIVSg2000</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    color-scheme: light;
+    --fondo-mapa: #e8eef2;
+    --panel: #ffffff;
+    --panel-2: #f3f6f8;
+    --texto: #17222d;
+    --texto-suave: #5a6875;
+    --borde: #d2dbe2;
+    --kv500: #1f4e9e;
+    --kv230: #12806e;
+    --kv161: #a07818;
+    --kv115: #6f7f8d;
+    --trafo: #aab5c0;
+    --alarma: #c8156f;
+    --alarma-suave: rgba(200, 21, 111, 0.12);
+    --puente: #e07400;
+    --ok: #1f7a4a;
+    --foco: #1f4e9e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --fondo-mapa: #0f1923;
+      --panel: #142030;
+      --panel-2: #1a2838;
+      --texto: #e3eaf0;
+      --texto-suave: #93a3b1;
+      --borde: #273748;
+      --kv500: #79a6f5;
+      --kv230: #45c4ad;
+      --kv161: #dcb14b;
+      --kv115: #8c9aa8;
+      --trafo: #3d4c5b;
+      --alarma: #ff4aa0;
+      --alarma-suave: rgba(255, 74, 160, 0.14);
+      --puente: #ff9a2e;
+      --ok: #4cc488;
+      --foco: #79a6f5;
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: "Barlow", "Segoe UI", system-ui, -apple-system, sans-serif;
+    font-size: 15px; line-height: 1.45; color: var(--texto); background: var(--panel);
+    font-variant-numeric: tabular-nums;
+  }
+  .app { display: grid; grid-template-columns: 1fr 390px; height: 100vh; }
+  .mapa { position: relative; background: var(--fondo-mapa); overflow: hidden; min-height: 320px; }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+  canvas.arrastrando { cursor: grabbing; }
+  canvas.sobre-elemento { cursor: pointer; }
+
+  .tooltip {
+    position: absolute; pointer-events: none; z-index: 5; max-width: 270px;
+    background: var(--panel); color: var(--texto); border: 1px solid var(--borde);
+    border-radius: 6px; padding: 8px 10px; font-size: 13.5px; line-height: 1.35;
+    box-shadow: 0 6px 18px rgba(10, 20, 30, 0.18); display: none;
+  }
+  .tooltip strong { font-weight: 600; }
+  .tooltip .suave { color: var(--texto-suave); }
+  .tooltip .alerta { color: var(--alarma); font-weight: 600; }
+
+  .leyenda {
+    position: absolute; left: 14px; bottom: 14px; z-index: 4;
+    background: var(--panel); border: 1px solid var(--borde); border-radius: 8px;
+    padding: 10px 12px; font-size: 13px; display: grid; gap: 4px;
+  }
+  .leyenda div { display: flex; align-items: center; gap: 8px; }
+  .muestra { width: 26px; height: 0; border-top: 3px solid; display: inline-block; }
+  .muestra.punteada { border-top-style: dashed; }
+  .punto { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin: 0 8.5px; }
+
+  .zoom { position: absolute; right: 14px; bottom: 14px; z-index: 4; display: flex; gap: 6px; }
+  .zoom button { min-width: 38px; }
+
+  .panel { overflow-y: auto; border-left: 1px solid var(--borde); padding: 22px 22px 32px; }
+  h1 { font-size: 25px; line-height: 1.15; font-weight: 700; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .bajada { color: var(--texto-suave); margin: 0 0 20px; }
+  h2 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
+  p { margin: 0 0 8px; }
+  .ayuda { color: var(--texto-suave); font-size: 13.5px; }
+
+  button {
+    font: inherit; font-size: 14px; font-weight: 500; color: var(--texto);
+    background: var(--panel-2); border: 1px solid var(--borde); border-radius: 6px;
+    padding: 7px 11px; cursor: pointer;
+  }
+  button:hover { border-color: var(--texto-suave); }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--foco); outline-offset: 2px; }
+  button:disabled { opacity: 0.5; cursor: progress; }
+
+  .modos { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--borde); border-radius: 7px; overflow: hidden; }
+  .modos button { border: 0; border-radius: 0; background: transparent; padding: 9px 6px; }
+  .modos button + button { border-left: 1px solid var(--borde); }
+  .modos button[aria-pressed="true"] { background: var(--texto); color: var(--panel); font-weight: 600; }
+
+  .escenarios { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .interruptor { display: flex; gap: 9px; align-items: flex-start; margin-top: 12px; font-size: 14px; }
+  .interruptor input { margin-top: 4px; accent-color: var(--puente); }
+
+  .estado { border-radius: 8px; padding: 13px 14px; background: var(--panel-2); border-left: 4px solid var(--ok); }
+  .estado.dividida { border-left-color: var(--alarma); background: var(--alarma-suave); }
+  .estado .titular { font-size: 18px; font-weight: 600; margin: 0 0 2px; }
+  .cifras { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+  .cifra b { display: block; font-size: 22px; font-weight: 600; line-height: 1.1; }
+  .cifra span { color: var(--texto-suave); font-size: 13px; }
+
+  .verificacion { display: flex; gap: 8px; align-items: baseline; margin-top: 12px; font-size: 14px; }
+  .verificacion .icono { font-weight: 700; color: var(--ok); }
+  .verificacion.error .icono, .verificacion.error { color: var(--alarma); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--borde); vertical-align: top; }
+  th { font-weight: 600; color: var(--texto-suave); font-size: 13px; }
+  td.num, th.num { text-align: right; }
+  .resultado-reemplazo { color: var(--ok); }
+  .resultado-isla { color: var(--alarma); font-weight: 600; }
+
+  .lista { list-style: none; margin: 0; padding: 0; }
+  .lista li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--borde); font-size: 14px; }
+  .lista button { padding: 4px 9px; font-size: 13px; }
+  .vacio { color: var(--texto-suave); font-size: 14px; }
+
+  .aviso { position: absolute; top: 14px; left: 14px; right: 14px; z-index: 6; display: none;
+    background: var(--alarma); color: #fff; padding: 10px 14px; border-radius: 6px; font-weight: 500; }
+
+  @media (max-width: 900px) {
+    .app { grid-template-columns: 1fr; height: auto; }
+    .mapa { height: 62vh; }
+    .panel { border-left: 0; border-top: 1px solid var(--borde); }
+    .leyenda { left: 8px; bottom: 8px; padding: 6px 8px; font-size: 11.5px; gap: 1px; }
+    .leyenda .muestra { width: 16px; }
+    .zoom { right: 8px; bottom: 8px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <main class="mapa">
+    <canvas id="lienzo" aria-label="Mapa de la red eléctrica"></canvas>
+    <div class="tooltip" id="tooltip" role="status"></div>
+    <div class="aviso" id="aviso"></div>
+    <div class="leyenda" aria-label="Leyenda">
+      <div><span class="muestra" style="border-color: var(--kv500)"></span>500 kV</div>
+      <div><span class="muestra" style="border-color: var(--kv230)"></span>230 kV</div>
+      <div><span class="muestra" style="border-color: var(--kv161)"></span>161 kV</div>
+      <div><span class="muestra" style="border-color: var(--kv115)"></span>115 kV</div>
+      <div><span class="muestra" style="border-color: var(--trafo)"></span>Transformador</div>
+      <div><span class="muestra punteada" style="border-color: var(--alarma)"></span>Línea caída</div>
+      <div><span class="punto" style="background: var(--alarma)"></span>Barra aislada</div>
+      <div id="leyenda-puente" hidden><span class="muestra" style="border-color: var(--puente); border-top-width: 5px"></span>Línea puente</div>
+    </div>
+    <div class="zoom">
+      <button id="acercar" aria-label="Acercar">+</button>
+      <button id="alejar" aria-label="Alejar">−</button>
+      <button id="ajustar">Ajustar vista</button>
+    </div>
+  </main>
+
+  <aside class="panel">
+    <h1>Islanding en la red ACTIVSg2000</h1>
+    <p class="bajada" id="bajada">Cargando la red…</p>
+
+    <div class="modos" role="group" aria-label="Modo de interacción">
+      <button id="modo-caer" aria-pressed="true">Hacer caer líneas</button>
+      <button id="modo-consulta" aria-pressed="false">Consultar conectividad</button>
+    </div>
+    <p class="ayuda" id="ayuda-modo" style="margin-top: 8px">Haz clic en una línea del mapa para hacerla caer; vuelve a hacer clic para restaurarla.</p>
+
+    <h2>Escenarios</h2>
+    <div class="escenarios">
+      <button id="esc-aleatoria">Caída aleatoria</button>
+      <button id="esc-puente">Caída de un puente</button>
+      <button id="esc-ejemplo">Ejemplo N-2 con islanding</button>
+      <button id="esc-restaurar">Restaurar la red</button>
+    </div>
+    <label class="interruptor">
+      <input type="checkbox" id="ver-puentes">
+      <span>Resaltar líneas puente<br><span class="ayuda">Una línea puente es la única conexión de una zona con el resto: si cae, la aísla.</span></span>
+    </label>
+
+    <h2>Estado de la red</h2>
+    <div class="estado" id="estado">
+      <p class="titular" id="estado-titular">—</p>
+      <p class="ayuda" id="estado-detalle"></p>
+      <button id="ver-isla" hidden style="margin-top: 6px">Acercar a la zona aislada</button>
+      <div class="cifras">
+        <div class="cifra"><b id="c-caidas">0</b><span>líneas caídas</span></div>
+        <div class="cifra"><b id="c-comp">1</b><span>componentes</span></div>
+        <div class="cifra"><b id="c-aisladas">0</b><span>barras aisladas</span></div>
+      </div>
+    </div>
+    <div class="verificacion" id="verificacion"><span class="icono">✓</span><span id="verificacion-texto">—</span></div>
+
+    <div id="bloque-operacion" hidden>
+      <h2 id="op-titulo">Última operación</h2>
+      <table>
+        <thead><tr><th>Estructura</th><th>Línea en su árbol</th><th>Resultado</th><th class="num">Tiempo</th></tr></thead>
+        <tbody id="op-filas"></tbody>
+      </table>
+      <p class="ayuda" style="margin-top: 8px">Cada estructura mantiene su propio árbol de expansión, por eso una misma línea puede estar en el árbol de una y fuera del de la otra.</p>
+    </div>
+
+    <div id="bloque-consulta" hidden>
+      <h2>Consulta de conectividad</h2>
+      <p id="consulta-texto" class="ayuda">Haz clic en dos barras del mapa.</p>
+      <table id="consulta-tabla" hidden>
+        <thead><tr><th>Estructura</th><th>Respuesta</th><th class="num">Tiempo</th></tr></thead>
+        <tbody id="consulta-filas"></tbody>
+      </table>
+    </div>
+
+    <h2>Líneas caídas</h2>
+    <ul class="lista" id="caidas"></ul>
+
+    <h2>Las dos estructuras</h2>
+    <table>
+      <thead><tr><th></th><th class="num">D-tree</th><th class="num">HKS</th></tr></thead>
+      <tbody>
+        <tr><td>Aristas del árbol</td><td class="num" id="e-dt-arbol">—</td><td class="num" id="e-hk-arbol">—</td></tr>
+        <tr><td>Aristas fuera del árbol</td><td class="num" id="e-dt-fuera">—</td><td class="num" id="e-hk-fuera">—</td></tr>
+        <tr><td>Memoria estimada</td><td class="num" id="e-dt-mem">—</td><td class="num" id="e-hk-mem">—</td></tr>
+        <tr><td>Ocurrencias del recorrido</td><td class="num">—</td><td class="num" id="e-hk-oc">—</td></tr>
+      </tbody>
+    </table>
+  </aside>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const lienzo = $("lienzo");
+const ctx = lienzo.getContext("2d");
+
+// ---------------------------------------------------------------- estado
+const app = {
+  red: null,          // {n, m, barras, lineas, ejemplo_n2}
+  est: null,          // estado devuelto por /api/estado
+  puentes: new Set(),
+  verPuentes: false,
+  modo: "caer",
+  seleccion: [],      // barras elegidas en modo consulta
+  hover: null,        // {tipo: 'linea'|'barra', i}
+  ocupado: false,
+};
+let pos = [];                       // coordenadas de mundo de cada barra
+let clases = [];                    // clase visual de cada línea
+let vista = { s: 1, tx: 0, ty: 0 }; // pantalla = mundo * s + t
+let colores = {};
+
+function leerColores() {
+  const cs = getComputedStyle(document.documentElement);
+  for (const k of ["fondo-mapa", "texto", "texto-suave", "kv500", "kv230", "kv161", "kv115", "trafo", "alarma", "puente", "panel"])
+    colores[k] = cs.getPropertyValue("--" + k).trim();
+}
+leerColores();
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { leerColores(); dibujar(); });
+
+// ---------------------------------------------------------------- API
+async function api(ruta, metodo = "GET") {
+  const r = await fetch(ruta, { method: metodo });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || ("Error " + r.status));
+  return j;
+}
+function aviso(msg) {
+  const a = $("aviso");
+  a.textContent = msg; a.style.display = msg ? "block" : "none";
+}
+
+// ---------------------------------------------------------------- geometría
+function claseDe(u, v) {
+  const a = app.red.barras[u].kv, b = app.red.barras[v].kv;
+  if (a !== b) return "trafo";
+  if (a >= 400) return "kv500";
+  if (a >= 200) return "kv230";
+  if (a >= 150) return "kv161";
+  if (a >= 100) return "kv115";
+  return "trafo";
+}
+const ANCHO = { kv500: 2.4, kv230: 1.7, kv161: 1.35, kv115: 1.05, trafo: 1.0 };
+const ORDEN_CLASES = ["trafo", "kv115", "kv161", "kv230", "kv500"];
+
+function radioBarra(kv) { return kv >= 400 ? 3.0 : kv >= 200 ? 2.6 : kv >= 150 ? 2.3 : kv >= 100 ? 2.1 : 1.7; }
+
+function calcularPosiciones() {
+  const B = app.red.barras;
+  const conGeo = B.every((b) => b.geo);
+  if (!conGeo) {  // sin coordenadas: disposición circular
+    pos = B.map((_, i) => { const t = 2 * Math.PI * i / B.length; return [Math.cos(t), Math.sin(t)]; });
+    return;
+  }
+  const lat0 = B.reduce((s, b) => s + b.lat, 0) / B.length;
+  const k = Math.cos(lat0 * Math.PI / 180);
+  // Las barras de una misma subestación comparten coordenadas: se reparten en un círculo pequeño.
+  const grupos = new Map();
+  B.forEach((b, i) => { if (!grupos.has(b.sub)) grupos.set(b.sub, []); grupos.get(b.sub).push(i); });
+  pos = new Array(B.length);
+  for (const miembros of grupos.values()) {
+    const r = miembros.length > 1 ? 0.012 + 0.004 * Math.sqrt(miembros.length) : 0;
+    miembros.forEach((i, j) => {
+      const t = 2 * Math.PI * j / miembros.length;
+      pos[i] = [B[i].lon * k + r * Math.cos(t), -B[i].lat + r * Math.sin(t)];
+    });
+  }
+}
+
+function enfocar(indices) {
+  const W = lienzo.clientWidth, H = lienzo.clientHeight;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const i of indices) { const [x, y] = pos[i]; x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  const ancho = Math.max(x1 - x0, 0.8), alto = Math.max(y1 - y0, 0.8);  // conserva algo de contexto
+  const s = Math.min(vista.s0 * 80, Math.min(W / (ancho * 1.6), H / (alto * 1.6)));
+  vista.s = s; vista.tx = W / 2 - s * cx; vista.ty = H / 2 - s * cy;
+  dibujar();
+}
+
+function ajustarVista() {
+  const W = lienzo.clientWidth, H = lienzo.clientHeight;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const [x, y] of pos) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+  const m = 40;
+  const s = Math.min((W - 2 * m) / (x1 - x0 || 1), (H - 2 * m) / (y1 - y0 || 1));
+  vista = { s, tx: (W - s * (x0 + x1)) / 2, ty: (H - s * (y0 + y1)) / 2 };
+  vista.s0 = s;
+  dibujar();
+}
+const aPantalla = (p) => [p[0] * vista.s + vista.tx, p[1] * vista.s + vista.ty];
+
+function redimensionar() {
+  const dpr = window.devicePixelRatio || 1;
+  lienzo.width = Math.round(lienzo.clientWidth * dpr);
+  lienzo.height = Math.round(lienzo.clientHeight * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+// ---------------------------------------------------------------- dibujo
+function dibujar() {
+  if (!app.red) return;
+  const W = lienzo.clientWidth, H = lienzo.clientHeight;
+  ctx.fillStyle = colores["fondo-mapa"];
+  ctx.fillRect(0, 0, W, H);
+  const comp = app.est ? app.est.componente : null;
+  const caidas = new Set(app.est ? app.est.caidas : []);
+  const L = app.red.lineas;
+  const esc = Math.max(1, Math.min(2.2, Math.pow(vista.s / (vista.s0 || vista.s), 0.35)));
+  const P = pos.map(aPantalla);
+
+  const trazar = (i) => { const [u, v] = L[i]; ctx.moveTo(P[u][0], P[u][1]); ctx.lineTo(P[v][0], P[v][1]); };
+
+  // Halo de las líneas puente
+  if (app.verPuentes && app.puentes.size) {
+    ctx.beginPath();
+    for (const i of app.puentes) if (!caidas.has(i)) trazar(i);
+    ctx.strokeStyle = colores.puente; ctx.globalAlpha = 0.55; ctx.lineWidth = 6 * esc; ctx.lineCap = "round";
+    ctx.stroke(); ctx.globalAlpha = 1;
+  }
+  // Líneas en servicio, por nivel de tensión (las de mayor tensión encima)
+  ctx.lineCap = "round";
+  for (const cl of ORDEN_CLASES) {
+    ctx.beginPath();
+    let hay = false;
+    for (let i = 0; i < L.length; i++) {
+      if (clases[i] !== cl || caidas.has(i)) continue;
+      if (comp && comp[L[i][0]] !== 0) continue;  // las de zonas aisladas se dibujan aparte
+      trazar(i); hay = true;
+    }
+    if (hay) { ctx.strokeStyle = colores[cl]; ctx.lineWidth = ANCHO[cl] * esc; ctx.stroke(); }
+  }
+  // Líneas dentro de zonas aisladas
+  if (comp) {
+    ctx.beginPath();
+    for (let i = 0; i < L.length; i++) if (!caidas.has(i) && comp[L[i][0]] !== 0) trazar(i);
+    ctx.strokeStyle = colores.alarma; ctx.lineWidth = 1.6 * esc; ctx.stroke();
+  }
+  // Líneas caídas
+  if (caidas.size) {
+    ctx.beginPath();
+    for (const i of caidas) trazar(i);
+    ctx.setLineDash([5, 4]); ctx.strokeStyle = colores.alarma; ctx.lineWidth = 2.2 * esc; ctx.stroke(); ctx.setLineDash([]);
+  }
+  // Línea bajo el cursor
+  if (app.hover && app.hover.tipo === "linea") {
+    ctx.beginPath(); trazar(app.hover.i);
+    ctx.strokeStyle = colores.texto; ctx.lineWidth = 4 * esc; ctx.globalAlpha = 0.45; ctx.stroke(); ctx.globalAlpha = 1;
+  }
+  // Halo de las barras aisladas, para que la zona se vea a cualquier escala
+  const B = app.red.barras;
+  if (comp && app.est.componentes > 1) {
+    ctx.beginPath();
+    for (let i = 0; i < B.length; i++) {
+      if (comp[i] === 0) continue;
+      const [x, y] = P[i];
+      ctx.moveTo(x + 14, y); ctx.arc(x, y, 14, 0, 2 * Math.PI);
+    }
+    ctx.fillStyle = colores.alarma; ctx.globalAlpha = 0.16; ctx.fill(); ctx.globalAlpha = 1;
+  }
+  // Barras
+  for (const enIsla of [false, true]) {
+    for (let i = 0; i < B.length; i++) {
+      const aislada = comp && comp[i] !== 0;
+      if (aislada !== enIsla) continue;
+      const [x, y] = P[i];
+      if (x < -10 || y < -10 || x > W + 10 || y > H + 10) continue;
+      const r = radioBarra(B[i].kv) * esc;
+      ctx.beginPath(); ctx.arc(x, y, aislada ? r + 1.2 : r, 0, 2 * Math.PI);
+      ctx.fillStyle = aislada ? colores.alarma : colores[claseDe(i, i)];
+      ctx.fill();
+      if (aislada) { ctx.lineWidth = 1.2; ctx.strokeStyle = colores.panel; ctx.stroke(); }
+    }
+  }
+  // Barra bajo el cursor y barras seleccionadas para consulta
+  const anillo = (i, txt) => {
+    const [x, y] = P[i];
+    ctx.beginPath(); ctx.arc(x, y, 8, 0, 2 * Math.PI);
+    ctx.lineWidth = 2.2; ctx.strokeStyle = colores.texto; ctx.stroke();
+    if (txt) {
+      ctx.font = "600 13px Barlow, system-ui, sans-serif";
+      ctx.fillStyle = colores.texto; ctx.fillText(txt, x + 11, y - 9);
+    }
+  };
+  if (app.hover && app.hover.tipo === "barra") anillo(app.hover.i, "");
+  app.seleccion.forEach((i, k) => anillo(i, k === 0 ? "A" : "B"));
+}
+
+// ---------------------------------------------------------------- selección con el cursor
+function barraCercana(mx, my, lim = 9) {
+  let mejor = -1, d2 = lim * lim;
+  for (let i = 0; i < pos.length; i++) {
+    const [x, y] = aPantalla(pos[i]);
+    const d = (x - mx) ** 2 + (y - my) ** 2;
+    if (d < d2) { d2 = d; mejor = i; }
+  }
+  return mejor;
+}
+function lineaCercana(mx, my, lim = 6) {
+  let mejor = -1, dmin = lim;
+  const L = app.red.lineas;
+  for (let i = 0; i < L.length; i++) {
+    const [ax, ay] = aPantalla(pos[L[i][0]]), [bx, by] = aPantalla(pos[L[i][1]]);
+    const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+    let t = l2 ? ((mx - ax) * dx + (my - ay) * dy) / l2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    const d = Math.hypot(mx - (ax + t * dx), my - (ay + t * dy));
+    if (d < dmin) { dmin = d; mejor = i; }
+  }
+  return mejor;
+}
+
+const nombreBarra = (i) => {
+  const b = app.red.barras[i];
+  return `Barra ${b.id}` + (b.nombre ? ` (${b.nombre})` : "");
+};
+const kvTexto = (kv) => (kv >= 100 ? kv.toFixed(0) : kv.toFixed(1)) + " kV";
+function nombreLinea(i) {
+  const [u, v] = app.red.lineas[i], B = app.red.barras;
+  const cl = clases[i];
+  const tension = cl === "trafo" ? `transformador ${kvTexto(B[u].kv)} / ${kvTexto(B[v].kv)}` : kvTexto(B[u].kv);
+  return `${B[u].id} – ${B[v].id}, ${tension}`;
+}
+
+function mostrarTooltip(mx, my) {
+  const t = $("tooltip");
+  if (!app.hover) { t.style.display = "none"; return; }
+  let html;
+  if (app.hover.tipo === "linea") {
+    const i = app.hover.i, caida = app.est.caidas.includes(i);
+    html = `<strong>Línea ${nombreLinea(i)}</strong><br>`;
+    if (app.verPuentes && app.puentes.has(i) && !caida) html += `<span class="alerta">Es un puente: su caída aísla una zona</span><br>`;
+    html += `<span class="suave">${caida ? "Línea caída. Clic para restaurarla." : (app.modo === "caer" ? "Clic para hacerla caer." : "")}</span>`;
+  } else {
+    const i = app.hover.i, b = app.red.barras[i];
+    const aislada = app.est.componente[i] !== 0;
+    html = `<strong>${nombreBarra(i)}</strong><br><span class="suave">${kvTexto(b.kv)}, subestación ${b.sub}</span>`;
+    if (aislada) html += `<br><span class="alerta">Aislada del resto de la red</span>`;
+    if (app.modo === "consulta") html += `<br><span class="suave">Clic para elegirla en la consulta.</span>`;
+  }
+  t.innerHTML = html;
+  t.style.display = "block";
+  const W = lienzo.clientWidth;
+  const izq = mx + 16 + t.offsetWidth > W ? mx - 16 - t.offsetWidth : mx + 16;
+  t.style.left = izq + "px"; t.style.top = Math.max(8, my - 10) + "px";
+}
+
+// ---------------------------------------------------------------- interacción con el mapa
+let arrastre = null;
+lienzo.addEventListener("pointerdown", (e) => {
+  lienzo.setPointerCapture(e.pointerId);
+  arrastre = { x: e.offsetX, y: e.offsetY, tx: vista.tx, ty: vista.ty, movido: false };
+});
+lienzo.addEventListener("pointermove", (e) => {
+  if (!app.red || !app.est) return;
+  if (arrastre) {
+    const dx = e.offsetX - arrastre.x, dy = e.offsetY - arrastre.y;
+    if (Math.abs(dx) + Math.abs(dy) > 4) arrastre.movido = true;
+    if (arrastre.movido) {
+      lienzo.classList.add("arrastrando");
+      vista.tx = arrastre.tx + dx; vista.ty = arrastre.ty + dy;
+      $("tooltip").style.display = "none";
+      dibujar();
+      return;
+    }
+  }
+  let h = null;
+  if (app.modo === "caer") {
+    const l = lineaCercana(e.offsetX, e.offsetY);
+    if (l >= 0) h = { tipo: "linea", i: l };
+    else { const b = barraCercana(e.offsetX, e.offsetY); if (b >= 0) h = { tipo: "barra", i: b }; }
+  } else {
+    const b = barraCercana(e.offsetX, e.offsetY);
+    if (b >= 0) h = { tipo: "barra", i: b };
+  }
+  const cambio = JSON.stringify(h) !== JSON.stringify(app.hover);
+  app.hover = h;
+  lienzo.classList.toggle("sobre-elemento", !!h && (app.modo === "consulta" || h.tipo === "linea"));
+  mostrarTooltip(e.offsetX, e.offsetY);
+  if (cambio) dibujar();
+});
+lienzo.addEventListener("pointerup", (e) => {
+  const fue_clic = arrastre && !arrastre.movido;
+  arrastre = null;
+  lienzo.classList.remove("arrastrando");
+  if (!fue_clic || !app.hover || app.ocupado) return;
+  if (app.modo === "caer" && app.hover.tipo === "linea") {
+    const i = app.hover.i;
+    app.est.caidas.includes(i) ? restaurarLinea(i) : caerLinea(i);
+  } else if (app.modo === "consulta" && app.hover.tipo === "barra") {
+    elegirBarra(app.hover.i);
+  }
+});
+lienzo.addEventListener("pointerleave", () => { app.hover = null; $("tooltip").style.display = "none"; dibujar(); });
+lienzo.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  zoomEn(e.offsetX, e.offsetY, Math.exp(-e.deltaY * 0.0015));
+}, { passive: false });
+
+function zoomEn(mx, my, f) {
+  const s = Math.max(vista.s0 * 0.5, Math.min(vista.s0 * 80, vista.s * f));
+  const k = s / vista.s;
+  vista.tx = mx - k * (mx - vista.tx); vista.ty = my - k * (my - vista.ty); vista.s = s;
+  dibujar();
+}
+$("acercar").onclick = () => zoomEn(lienzo.clientWidth / 2, lienzo.clientHeight / 2, 1.6);
+$("alejar").onclick = () => zoomEn(lienzo.clientWidth / 2, lienzo.clientHeight / 2, 1 / 1.6);
+$("ajustar").onclick = ajustarVista;
+$("ver-isla").onclick = () => enfocar(app.est.componente.map((c, i) => (c !== 0 ? i : -1)).filter((i) => i >= 0));
+
+// ---------------------------------------------------------------- operaciones
+async function ocupar(fn) {
+  if (app.ocupado) return;
+  app.ocupado = true;
+  document.querySelectorAll(".escenarios button").forEach((b) => (b.disabled = true));
+  try { await fn(); aviso(""); }
+  catch (err) { aviso(err.message.startsWith("Failed") ? "No se pudo conectar con el servidor. Verifica que ./servidor siga corriendo." : err.message); }
+  finally {
+    app.ocupado = false;
+    document.querySelectorAll(".escenarios button").forEach((b) => (b.disabled = false));
+  }
+}
+async function refrescarPuentes() {
+  if (!app.verPuentes) return;
+  const j = await api("/api/puentes");
+  app.puentes = new Set(j.puentes);
+}
+async function aplicar(i, caer) {
+  const j = await api(`/api/${caer ? "caer" : "restaurar"}?i=${i}`, "POST");
+  app.est = j.estado;
+  mostrarOperacion(j.operacion);
+}
+function caerLinea(i) { return ocupar(async () => { await aplicar(i, true); await refrescarPuentes(); actualizarPanel(); }); }
+function restaurarLinea(i) { return ocupar(async () => { await aplicar(i, false); await refrescarPuentes(); actualizarPanel(); }); }
+
+$("esc-aleatoria").onclick = () => ocupar(async () => {
+  const caidas = new Set(app.est.caidas);
+  const libres = app.red.lineas.map((_, i) => i).filter((i) => !caidas.has(i));
+  await aplicar(libres[Math.floor(Math.random() * libres.length)], true);
+  await refrescarPuentes(); actualizarPanel();
+});
+$("esc-puente").onclick = () => ocupar(async () => {
+  const j = await api("/api/puentes");
+  if (!j.puentes.length) throw new Error("La red actual no tiene líneas puente.");
+  await aplicar(j.puentes[Math.floor(Math.random() * j.puentes.length)], true);
+  await refrescarPuentes(); actualizarPanel();
+});
+$("esc-ejemplo").onclick = () => ocupar(async () => {
+  const ej = app.red.ejemplo_n2;
+  if (!ej) throw new Error("Este caso no incluye el ejemplo N-2.");
+  app.est = await api("/api/restaurar_todo", "POST");
+  await aplicar(ej[0], true);
+  await aplicar(ej[1], true);
+  await refrescarPuentes(); actualizarPanel();
+});
+$("esc-restaurar").onclick = () => ocupar(async () => {
+  app.est = await api("/api/restaurar_todo", "POST");
+  $("bloque-operacion").hidden = true;
+  await refrescarPuentes(); actualizarPanel();
+});
+$("ver-puentes").onchange = (e) => ocupar(async () => {
+  app.verPuentes = e.target.checked;
+  $("leyenda-puente").hidden = !app.verPuentes;
+  if (app.verPuentes) await refrescarPuentes(); else app.puentes = new Set();
+  dibujar();
+});
+
+function elegirBarra(i) {
+  if (app.seleccion.length === 2) app.seleccion = [];
+  app.seleccion.push(i);
+  dibujar();
+  if (app.seleccion.length === 1) {
+    $("consulta-texto").textContent = `Barra A: ${app.red.barras[i].id}. Elige la barra B.`;
+    $("consulta-tabla").hidden = true;
+    return;
+  }
+  const [a, b] = app.seleccion;
+  ocupar(async () => {
+    const r = await api(`/api/conn?u=${a}&v=${b}`);
+    const A = app.red.barras[a].id, Bb = app.red.barras[b].id;
+    $("consulta-texto").innerHTML = r.oraculo
+      ? `Las barras ${A} y ${Bb} <strong>están conectadas</strong>.`
+      : `Las barras ${A} y ${Bb} <strong class="resultado-isla">no están conectadas</strong>: quedaron en zonas distintas.`;
+    const fila = (n, v, us) => `<tr><td>${n}</td><td>${v ? "Conectadas" : "No conectadas"}</td><td class="num">${us.toFixed(1)} µs</td></tr>`;
+    $("consulta-filas").innerHTML = fila("D-tree", r.dtree, r.us_dtree) + fila("HKS", r.hks, r.us_hks)
+      + `<tr><td>BFS (referencia)</td><td>${r.oraculo ? "Conectadas" : "No conectadas"}</td><td class="num">—</td></tr>`;
+    $("consulta-tabla").hidden = false;
+  });
+}
+
+function cambiarModo(m) {
+  app.modo = m;
+  app.seleccion = [];
+  $("modo-caer").setAttribute("aria-pressed", m === "caer");
+  $("modo-consulta").setAttribute("aria-pressed", m === "consulta");
+  $("ayuda-modo").textContent = m === "caer"
+    ? "Haz clic en una línea del mapa para hacerla caer; vuelve a hacer clic para restaurarla."
+    : "Haz clic en dos barras para preguntar si siguen conectadas.";
+  $("bloque-consulta").hidden = m !== "consulta";
+  $("consulta-texto").textContent = "Haz clic en dos barras del mapa.";
+  $("consulta-tabla").hidden = true;
+  dibujar();
+}
+$("modo-caer").onclick = () => cambiarModo("caer");
+$("modo-consulta").onclick = () => cambiarModo("consulta");
+
+// ---------------------------------------------------------------- panel
+function mostrarOperacion(op) {
+  const resultado = (r) => {
+    if (!op.caer) return "Línea reinsertada";
+    if (!r.arbol) return "Estaba fuera del árbol: el árbol no cambia";
+    return r.siguen_conectados
+      ? `<span class="resultado-reemplazo">Encontró una arista de reemplazo</span>`
+      : `<span class="resultado-isla">Sin reemplazo: islanding</span>`;
+  };
+  const fila = (n, r) => `<tr><td>${n}</td><td>${r.arbol ? "Sí" : "No"}</td><td>${resultado(r)}</td><td class="num">${r.us.toFixed(1)} µs</td></tr>`;
+  $("op-titulo").textContent = (op.caer ? "Cayó la línea " : "Se restauró la línea ") + nombreLinea(op.linea);
+  $("op-filas").innerHTML = fila("D-tree", op.dtree) + fila("HKS", op.hks);
+  $("bloque-operacion").hidden = false;
+}
+
+const kib = (b) => (b / 1024).toFixed(1) + " KiB";
+function actualizarPanel() {
+  const e = app.est, red = app.red;
+  const aisladas = e.componente.filter((c) => c !== 0).length;
+  const dividida = e.componentes > 1;
+  $("estado").classList.toggle("dividida", dividida);
+  $("estado-titular").textContent = dividida ? `La red se dividió en ${e.componentes} partes` : "La red está conectada";
+  $("estado-detalle").textContent = dividida
+    ? `${aisladas} ${aisladas === 1 ? "barra quedó aislada" : "barras quedaron aisladas"} de la zona principal (${e.tamanos[0]} barras).`
+    : "Todas las barras pueden alcanzarse entre sí.";
+  $("ver-isla").hidden = !dividida;
+  $("c-caidas").textContent = e.caidas.length;
+  $("c-comp").textContent = e.componentes;
+  $("c-aisladas").textContent = aisladas;
+
+  const ok = e.coinciden && e.oraculo;
+  $("verificacion").classList.toggle("error", !ok);
+  $("verificacion").querySelector(".icono").textContent = ok ? "✓" : "✗";
+  $("verificacion-texto").textContent = ok
+    ? "D-tree y HKS coinciden con el cálculo por BFS"
+    : "Las estructuras no coinciden con el cálculo por BFS";
+
+  const ul = $("caidas");
+  ul.innerHTML = "";
+  if (!e.caidas.length) {
+    ul.innerHTML = `<li class="vacio">Ninguna línea caída. Haz clic en una línea del mapa para empezar.</li>`;
+  } else {
+    for (const i of e.caidas) {
+      const li = document.createElement("li");
+      li.innerHTML = `<span>${nombreLinea(i)}</span>`;
+      const b = document.createElement("button");
+      b.textContent = "Restaurar";
+      b.onclick = () => restaurarLinea(i);
+      li.appendChild(b);
+      ul.appendChild(li);
+    }
+  }
+  $("e-dt-arbol").textContent = e.dtree.aristas_arbol;
+  $("e-hk-arbol").textContent = e.hks.aristas_arbol;
+  $("e-dt-fuera").textContent = e.dtree.aristas_fuera;
+  $("e-hk-fuera").textContent = e.hks.aristas_fuera;
+  $("e-dt-mem").textContent = kib(e.dtree.memoria);
+  $("e-hk-mem").textContent = kib(e.hks.memoria);
+  $("e-hk-oc").textContent = e.hks.ocurrencias;
+  dibujar();
+}
+
+// ---------------------------------------------------------------- inicio
+async function iniciar() {
+  try {
+    app.red = await api("/api/red");
+    app.est = await api("/api/estado");
+  } catch (err) {
+    aviso("No se pudo conectar con el servidor. Inicia ./servidor y recarga la página.");
+    return;
+  }
+  clases = app.red.lineas.map(([u, v]) => claseDe(u, v));
+  $("bajada").textContent = `Red sintética de Texas con ${app.red.n} barras y ${app.red.m} líneas. Haz caer líneas y observa si la red se divide en zonas aisladas.`;
+  calcularPosiciones();
+  redimensionar();
+  ajustarVista();
+  actualizarPanel();
+}
+window.addEventListener("resize", () => { redimensionar(); dibujar(); });
+iniciar();
+</script>
+</body>
+</html>
